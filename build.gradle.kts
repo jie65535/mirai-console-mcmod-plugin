@@ -16,8 +16,8 @@ repositories {
 
 dependencies{
     implementation("org.jsoup:jsoup:1.15.4")
-    implementation("com.squareup.retrofit2:retrofit:2.10.0")
-    implementation("com.squareup.okhttp3:okhttp:5.0.0-alpha.11")
+    implementation("com.squareup.retrofit2:retrofit:2.11.0")
+    implementation("com.squareup.okhttp3:okhttp:5.0.0-alpha.14")
     
     // https://mvnrepository.com/artifact/org.sejda.imageio/webp-imageio
     implementation("org.sejda.imageio:webp-imageio:0.1.6")
