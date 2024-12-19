@@ -9,6 +9,7 @@
 
 package top.limbang.mcmod.service
 
+import com.luciad.imageio.webp.WebPReadParam
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -184,17 +185,24 @@ object MiraiToMcmodService {
                 val type = responseBody.contentType()
                 val bytes = responseBody.bytes()
 
-                if (type?.subtype == "jpeg") {
-                    if (bytes[bytes.lastIndex].toUByte() != 0xD9.toUByte()) { //意外的JPG结尾
-                        withContext(Dispatchers.IO) {
-                            val bufferedImage = ImageIO.read(bytes.inputStream()) ?: throw IOException("不支持的格式")
-                            ImageIO.write(bufferedImage, "png", file) // 都转成 png 格式
+                when (type?.subtype) {
+                    "jpeg" -> {
+                        if (bytes[bytes.lastIndex].toUByte() != 0xD9.toUByte()) { //意外的JPG结尾
+                            withContext(Dispatchers.IO) {
+                                val bufferedImage = ImageIO.read(bytes.inputStream()) ?: throw IOException("不支持的格式")
+                                ImageIO.write(bufferedImage, "png", file) // 都转成 png 格式
+                            }
+                        } else {
+                            file.writeBytes(bytes)
                         }
-                    } else {
-                        file.writeBytes(bytes)
                     }
-                } else {
-                    file.writeBytes(bytes)
+                    // Mirai不支持WebP文件上传，因此将其转为png文件
+                    "webp" -> withContext(Dispatchers.IO) {
+                        Thread.currentThread().contextClassLoader = Mcmod::class.java.classLoader
+                        val bufferedImage = ImageIO.read(bytes.inputStream()) ?: throw IOException("不支持的格式")
+                        ImageIO.write(bufferedImage, "png", file) // 都转成 png 格式
+                    }
+                    else -> file.writeBytes(bytes)
                 }
                 if (isZoomBySize) file.zoomBySize(45)
                 file.toExternalResource()

@@ -39,7 +39,7 @@ import top.limbang.mcmod.service.MiraiToMcmodService.toMcmodSearch
 object Mcmod : KotlinPlugin(JvmPluginDescription(
     id = "top.limbang.mcmod",
     name = "Mcmod",
-    version = "2.0.10",
+    version = "2.1.0",
 ) {
     author("limbang")
     info("""mc百科查询""")
