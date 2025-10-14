@@ -74,7 +74,9 @@ object Mcmod : KotlinPlugin(JvmPluginDescription(
                     }
                     // 开始搜索
                     val searchMessage = toMcmodSearch(it, filter)
-                    subject.sendMessage(searchMessage)
+                    if (searchMessage != null) {
+                        subject.sendMessage(searchMessage)
+                    }
                 }
             }
         }

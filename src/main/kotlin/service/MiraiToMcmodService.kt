@@ -9,7 +9,6 @@
 
 package top.limbang.mcmod.service
 
-import com.luciad.imageio.webp.WebPReadParam
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -47,14 +46,14 @@ object MiraiToMcmodService {
      * @param key 关键字
      * @param filter 搜索过滤
      */
-    suspend fun MessageEvent.toMcmodSearch(key: String, filter: SearchFilter): Message {
+    suspend fun MessageEvent.toMcmodSearch(key: String, filter: SearchFilter): Message? {
         var pagingStoragePage = 1
         runCatching {
             if (filter == SERVER) mcmodService.searchServer(body = SearchServer(key, pagingStoragePage))
             else mcmodService.search(key, filter.ordinal, pagingStoragePage)
         }.onSuccess {
             // 未搜索到内容回复
-            if (it.isEmpty()) return PlainText("没有找到与“ $key ”有关的内容")
+            if (it.isEmpty()) return PlainText("未查找到相关内容")
             // 判断搜索到的结果是否只有一条,是就直接返回具体内容
             if (it.size == 1) return parseSearchResult(filter, it[0], this)
 
@@ -66,15 +65,18 @@ object MiraiToMcmodService {
             // 添加结果到存储里面
             pagingStorage.addAll(it)
 
-            var nextEvent: MessageEvent
             do {
                 val list = pagingStorage.getPageList(pagingStoragePage)
                 val forwardMessage = list.toMessage(this, pagingStoragePage == 1)
                 val listMessage = subject.sendMessage(forwardMessage)
                 // 获取下一条消息事件
-                nextEvent = withTimeoutOrNull(30000) {
+                val nextEvent: MessageEvent? = withTimeoutOrNull(30000) {
                     GlobalEventChannel.nextEvent(EventPriority.MONITOR) { next -> next.sender == sender }
-                } ?: return PlainText("等待超时,请重新查询").also { listMessage.recall() }
+                }
+                if (nextEvent == null) {
+                    listMessage.recall()
+                    return null
+                }
                 // 翻页控制
                 val nextMessage = nextEvent.message.content
                 val isContinue = when {
@@ -124,7 +126,7 @@ object MiraiToMcmodService {
         }.onFailure {
             return PlainText("请求失败：${it.message}")
         }
-        return PlainText("请不要输入一些奇奇怪怪的东西")
+        return null
     }
 
 
