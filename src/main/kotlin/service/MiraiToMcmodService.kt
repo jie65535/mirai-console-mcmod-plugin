@@ -26,6 +26,7 @@ import okio.IOException
 import top.limbang.mcmod.Mcmod
 import top.limbang.mcmod.PluginConfig
 import top.limbang.mcmod.PluginConfig.isMultipleSelectEnabled
+import top.limbang.mcmod.network.McmodBlockedException
 import top.limbang.mcmod.network.Service
 import top.limbang.mcmod.network.model.SearchFilter
 import top.limbang.mcmod.network.model.SearchFilter.*
@@ -98,7 +99,7 @@ object MiraiToMcmodService {
                                 pagingStorage.addAll(nextList)
                                 page++
                             }.onFailure { e ->
-                                return PlainText("请求失败：${e.message}")
+                                return PlainText(formatRequestError(e))
                             }
                         }
                         true
@@ -124,11 +125,19 @@ object MiraiToMcmodService {
                 listMessage.recall()
             } while (isContinue)
         }.onFailure {
-            return PlainText("请求失败：${it.message}")
+            return PlainText(formatRequestError(it))
         }
         return null
     }
 
+    /**
+     * ### 把请求异常格式化为用户提示
+     * 对 [McmodBlockedException] 给出明确说明, 避免被误读成 "搜索无结果".
+     */
+    private fun formatRequestError(e: Throwable): String = when (e) {
+        is McmodBlockedException -> "被 mcmod 反爬虫拦截"
+        else -> "请求失败：${e.message}"
+    }
 
     /**
      * ### 解析搜索的结果
@@ -151,7 +160,7 @@ object MiraiToMcmodService {
                 else -> TODO()
             }
         }.onFailure {
-            return PlainText("请求失败：${it.message}")
+            return PlainText(formatRequestError(it))
         }
         return PlainText("未实现的分类查询!")
     }
