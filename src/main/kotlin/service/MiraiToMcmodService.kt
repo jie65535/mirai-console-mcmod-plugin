@@ -80,7 +80,8 @@ object MiraiToMcmodService {
 
         do {
             val list = pagingStorage.getPageList(pagingStoragePage)
-            val forwardMessage = list.toMessage(this, pagingStoragePage == 1)
+            val hasNextPage = pagingStorage.pageSizeOrZero(pagingStoragePage + 1) > 0 || isNextPage
+            val forwardMessage = list.toMessage(this, pagingStoragePage == 1, hasNextPage)
             val listMessage = subject.sendMessage(forwardMessage)
             // 获取下一条消息事件
             val nextEvent: MessageEvent? = withTimeoutOrNull(30000) {
@@ -92,27 +93,32 @@ object MiraiToMcmodService {
             }
             // 翻页控制
             val nextMessage = nextEvent.message.content
+            val selectedIndex = nextMessage.toIntOrNull()
             val isContinue = when {
                 // 判断是否向下翻页
                 nextMessage.equals("n", true) -> {
-                    val size = try {
-                        pagingStorage.getPageList(pagingStoragePage + 1).size
-                        pagingStoragePage++
-                    } catch (e: ArrayIndexOutOfBoundsException) {
-                        PluginConfig.pageSize
-                    }
-                    // 获取下一页的数据,大小如果小于页面设置的默认值且有下一页就获取下请求
-                    if (size < PluginConfig.pageSize && isNextPage) {
-                        runCatching {
+                    var nextPageSize = pagingStorage.pageSizeOrZero(pagingStoragePage + 1)
+                    var fetchedPages = 0
+
+                    // 客户端过滤可能让本地下一页不足, 有界补拉服务端页直到可翻页或没有更多数据
+                    while (
+                        nextPageSize < PluginConfig.pageSize &&
+                        isNextPage &&
+                        fetchedPages < PAGE_PREFETCH_LIMIT
+                    ) {
+                        val (filtered, hasMore) = runCatching {
                             fetchSearchPage(filter, key, serverPage)
-                        }.onSuccess { (filtered, hasMore) ->
-                            isNextPage = hasMore
-                            pagingStorage.addAll(filtered)
-                            serverPage++
-                        }.onFailure { e ->
+                        }.getOrElse { e ->
                             return PlainText(formatRequestError(e))
                         }
+
+                        isNextPage = hasMore
+                        pagingStorage.addAll(filtered)
+                        serverPage++
+                        fetchedPages++
+                        nextPageSize = pagingStorage.pageSizeOrZero(pagingStoragePage + 1)
                     }
+                    if (nextPageSize > 0) pagingStoragePage++
                     true
                 }
                 // 判断是否向上翻页
@@ -122,10 +128,12 @@ object MiraiToMcmodService {
                     true
                 }
                 // 判断是否选择了序号
-                nextMessage.toIntOrNull() != null -> {
-                    if (nextMessage.toInt() > list.size) return PlainText("输入的序号过大").also { listMessage.recall() }
-                    if (nextMessage.toInt() < 0) return PlainText("输入的序号过小").also { listMessage.recall() }
-                    val message = parseSearchResult(filter, list[nextMessage.toInt()], this)
+                selectedIndex != null -> {
+                    if (selectedIndex !in list.indices) {
+                        val error = if (selectedIndex < 0) "输入的序号过小" else "输入的序号过大"
+                        return PlainText(error).also { listMessage.recall() }
+                    }
+                    val message = parseSearchResult(filter, list[selectedIndex], this)
                     if (!isMultipleSelectEnabled) return message.also { listMessage.recall() }
                     subject.sendMessage(message)
                     true
@@ -141,8 +149,9 @@ object MiraiToMcmodService {
     /**
      * ### 执行一次搜索请求
      *
-     * 对 [SERVER] 走专用接口; [ALL] 直接调用 ALL 接口; 其他过滤分类均使用 ALL 接口
-     * 然后按 URL 客户端筛选, 借此复用 mcmod 在 ALL 模式下更智能的排序
+     * 对 [SERVER] 走专用接口; [MODULE]、[MODULE_PACKAGE]、[ITEM] 和 [COURSE]
+     * 使用 ALL 接口后按 URL 客户端筛选, 借此复用 mcmod 在 ALL 模式下更智能的排序;
+     * 其他分类仍使用原有服务端过滤参数
      * (官方过滤接口对热门关键字的排序较差, 例如 "AE2" 会被附属模组淹没).
      *
      * @return 过滤后的结果列表 to 服务端是否还有下一页
@@ -157,30 +166,39 @@ object MiraiToMcmodService {
             list to (list.size == 30)
         }
         ALL -> {
-            val list = searchWithCaptcha(key, page)
+            val list = searchWithCaptcha(key, ALL.ordinal, page)
             list to (list.size == 30)
         }
-        else -> {
-            val raw = searchWithCaptcha(key, page)
+        MODULE, MODULE_PACKAGE, ITEM, COURSE -> {
+            val raw = searchWithCaptcha(key, ALL.ordinal, page)
             raw.filter { urlMatchesFilter(it.url, filter) } to (raw.size == 30)
+        }
+        else -> {
+            val list = searchWithCaptcha(key, filter.ordinal, page)
+            list to (list.size == 30)
         }
     }
 
     /**
      * 搜索站的验证码会话由 Cookie 标识, 因此主站搜索必须串行执行.
      */
-    private suspend fun MessageEvent.searchWithCaptcha(key: String, page: Int): List<SearchResult> =
+    private suspend fun MessageEvent.searchWithCaptcha(
+        key: String,
+        filter: Int,
+        page: Int
+    ): List<SearchResult> =
         searchMutex.withLock {
             try {
-                mcmodService.search(key, ALL.ordinal, page)
+                mcmodService.search(key, filter, page)
             } catch (challenge: McmodCaptchaException) {
-                solveSearchCaptcha(challenge, key, page)
+                solveSearchCaptcha(challenge, key, filter, page)
             }
         }
 
     private suspend fun MessageEvent.solveSearchCaptcha(
         initialChallenge: McmodCaptchaException,
         key: String,
+        filter: Int,
         page: Int
     ): List<SearchResult> {
         var challenge = initialChallenge
@@ -189,7 +207,7 @@ object MiraiToMcmodService {
                 ?: throw IOException("mcmod 安全验证超时")
             try {
                 mcmodService.solveCaptcha(challenge.requestUrl, answer).close()
-                return mcmodService.search(key, ALL.ordinal, page)
+                return mcmodService.search(key, filter, page)
             } catch (nextChallenge: McmodCaptchaException) {
                 challenge = nextChallenge
             }
@@ -236,8 +254,11 @@ object MiraiToMcmodService {
         MODULE_PACKAGE -> url.contains("/modpack/")
         ITEM -> url.contains("/item/")
         COURSE -> url.contains("/post/")
-        else -> true
+        else -> false
     }
+
+    private fun PagingStorage<SearchResult>.pageSizeOrZero(page: Int): Int =
+        runCatching { getPageList(page).size }.getOrDefault(0)
 
     /**
      * ### 把请求异常格式化为用户提示
