@@ -75,7 +75,8 @@ object MiraiToMcmodService {
 
         do {
             val list = pagingStorage.getPageList(pagingStoragePage)
-            val forwardMessage = list.toMessage(this, pagingStoragePage == 1)
+            val hasNextPage = pagingStorage.pageSizeOrZero(pagingStoragePage + 1) > 0 || isNextPage
+            val forwardMessage = list.toMessage(this, pagingStoragePage == 1, hasNextPage)
             val listMessage = subject.sendMessage(forwardMessage)
             // 获取下一条消息事件
             val nextEvent: MessageEvent? = withTimeoutOrNull(30000) {
@@ -87,12 +88,11 @@ object MiraiToMcmodService {
             }
             // 翻页控制
             val nextMessage = nextEvent.message.content
+            val selectedIndex = nextMessage.toIntOrNull()
             val isContinue = when {
                 // 判断是否向下翻页
                 nextMessage.equals("n", true) -> {
-                    var nextPageSize = runCatching {
-                        pagingStorage.getPageList(pagingStoragePage + 1).size
-                    }.getOrDefault(0)
+                    var nextPageSize = pagingStorage.pageSizeOrZero(pagingStoragePage + 1)
                     var fetchedPages = 0
 
                     // 客户端过滤可能让本地下一页不足, 有界补拉服务端页直到可翻页或没有更多数据
@@ -111,9 +111,7 @@ object MiraiToMcmodService {
                         pagingStorage.addAll(filtered)
                         serverPage++
                         fetchedPages++
-                        nextPageSize = runCatching {
-                            pagingStorage.getPageList(pagingStoragePage + 1).size
-                        }.getOrDefault(0)
+                        nextPageSize = pagingStorage.pageSizeOrZero(pagingStoragePage + 1)
                     }
 
                     if (nextPageSize > 0) pagingStoragePage++
@@ -126,10 +124,12 @@ object MiraiToMcmodService {
                     true
                 }
                 // 判断是否选择了序号
-                nextMessage.toIntOrNull() != null -> {
-                    if (nextMessage.toInt() > list.size) return PlainText("输入的序号过大").also { listMessage.recall() }
-                    if (nextMessage.toInt() < 0) return PlainText("输入的序号过小").also { listMessage.recall() }
-                    val message = parseSearchResult(filter, list[nextMessage.toInt()], this)
+                selectedIndex != null -> {
+                    if (selectedIndex !in list.indices) {
+                        val error = if (selectedIndex < 0) "输入的序号过小" else "输入的序号过大"
+                        return PlainText(error).also { listMessage.recall() }
+                    }
+                    val message = parseSearchResult(filter, list[selectedIndex], this)
                     if (!isMultipleSelectEnabled) return message.also { listMessage.recall() }
                     subject.sendMessage(message)
                     true
@@ -145,8 +145,9 @@ object MiraiToMcmodService {
     /**
      * ### 执行一次搜索请求
      *
-     * 对 [SERVER] 走专用接口; [ALL] 直接调用 ALL 接口; 其他过滤分类均使用 ALL 接口
-     * 然后按 URL 客户端筛选, 借此复用 mcmod 在 ALL 模式下更智能的排序
+     * 对 [SERVER] 走专用接口; [MODULE]、[MODULE_PACKAGE]、[ITEM] 和 [COURSE]
+     * 使用 ALL 接口后按 URL 客户端筛选, 借此复用 mcmod 在 ALL 模式下更智能的排序;
+     * 其他分类仍使用原有服务端过滤参数
      * (官方过滤接口对热门关键字的排序较差, 例如 "AE2" 会被附属模组淹没).
      *
      * @return 过滤后的结果列表 to 服务端是否还有下一页
@@ -164,9 +165,13 @@ object MiraiToMcmodService {
             val list = mcmodService.search(key, ALL.ordinal, page)
             list to (list.size == 30)
         }
-        else -> {
+        MODULE, MODULE_PACKAGE, ITEM, COURSE -> {
             val raw = mcmodService.search(key, ALL.ordinal, page)
             raw.filter { urlMatchesFilter(it.url, filter) } to (raw.size == 30)
+        }
+        else -> {
+            val list = mcmodService.search(key, filter.ordinal, page)
+            list to (list.size == 30)
         }
     }
 
@@ -181,8 +186,11 @@ object MiraiToMcmodService {
         MODULE_PACKAGE -> url.contains("/modpack/")
         ITEM -> url.contains("/item/")
         COURSE -> url.contains("/post/")
-        else -> true
+        else -> false
     }
+
+    private fun PagingStorage<SearchResult>.pageSizeOrZero(page: Int): Int =
+        runCatching { getPageList(page).size }.getOrDefault(0)
 
     /**
      * ### 解析搜索的结果
