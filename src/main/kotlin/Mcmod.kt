@@ -99,11 +99,7 @@ object Mcmod : KotlinPlugin(JvmPluginDescription(
      */
     private fun isNotReplyMessage(source: MessageSource): Boolean {
         return when (source.kind) {
-            MessageSourceKind.GROUP -> {
-                return if (isGroupMessagesEnabled) {
-                    !(groupMessagesEnabled[source.targetId] ?: false)
-                } else true
-            }
+            MessageSourceKind.GROUP -> !isGroupMessagesEnabled
             MessageSourceKind.FRIEND -> !isFriendMessagesEnabled
             MessageSourceKind.TEMP -> !isTempMessagesEnabled
             MessageSourceKind.STRANGER -> !isStrangerMessagesEnabled
