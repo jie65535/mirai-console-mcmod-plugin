@@ -92,6 +92,7 @@ object MiraiToMcmodService {
             val isContinue = when {
                 // 判断是否向下翻页
                 nextMessage.equals("n", true) -> {
+                    val currentPageSize = list.size
                     var nextPageSize = pagingStorage.pageSizeOrZero(pagingStoragePage + 1)
                     var fetchedPages = 0
 
@@ -114,8 +115,20 @@ object MiraiToMcmodService {
                         nextPageSize = pagingStorage.pageSizeOrZero(pagingStoragePage + 1)
                     }
 
-                    if (nextPageSize > 0) pagingStoragePage++
-                    true
+                    when {
+                        nextPageSize > 0 -> {
+                            pagingStoragePage++
+                            true
+                        }
+                        pagingStorage.pageSizeOrZero(pagingStoragePage) > currentPageSize -> {
+                            isNextPage = false
+                            true
+                        }
+                        else -> {
+                            isNextPage = false
+                            return PlainText("没有更多内容").also { listMessage.recall() }
+                        }
+                    }
                 }
                 // 判断是否向上翻页
                 nextMessage.equals("p", true) -> {
