@@ -48,6 +48,7 @@ object MiraiToMcmodService {
 
     private const val CAPTCHA_TIMEOUT_MILLIS = 60_000L
     private const val CAPTCHA_MAX_ATTEMPTS = 3
+    private const val PAGE_PREFETCH_LIMIT = 3
 
     /**
      * ### 搜索 mcmod
