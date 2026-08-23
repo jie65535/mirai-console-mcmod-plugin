@@ -62,14 +62,13 @@ class ChallengeInterceptor : Interceptor {
         // 只有 403 才需要读取完整 base64 验证码; 正常页面只检查旧版短挑战
         val peekBytes = if (response.code == 403) CAPTCHA_BODY_MAX_BYTES else LEGACY_CHALLENGE_BODY_MAX_BYTES
         val text = response.peekBody(peekBytes).string()
-        if (response.code == 403) throwCaptchaIfPresent(response, request.url.toString(), text)
+        if (response.code == 403) {
+            throwCaptchaIfPresent(response, request.url.toString(), text)
+            throwIfRateLimited(response, text)
+        }
 
         val match = TOKEN_REGEX.find(text)
         if (match == null || !text.contains("window.location.href")) {
-            if (response.code == 403 && Jsoup.parse(text).title().contains("访问间隔过短")) {
-                response.close()
-                throw McmodBlockedException("mcmod rejected requests sent too frequently")
-            }
             return response
         }
 
@@ -101,6 +100,7 @@ class ChallengeInterceptor : Interceptor {
             val retryText = retryResponse.peekBody(retryPeekBytes).string()
             if (retryResponse.code == 403) {
                 throwCaptchaIfPresent(retryResponse, request.url.toString(), retryText)
+                throwIfRateLimited(retryResponse, retryText)
             }
             if (TOKEN_REGEX.containsMatchIn(retryText) && retryText.contains("window.location.href")) {
                 retryResponse.close()
@@ -116,6 +116,12 @@ class ChallengeInterceptor : Interceptor {
         response.close()
         LOGGER.info("[Challenge] captcha required on $requestUrl")
         throw McmodCaptchaException(requestUrl, captcha.question, captcha.imageBytes)
+    }
+
+    private fun throwIfRateLimited(response: Response, body: String) {
+        if (!Jsoup.parse(body).title().contains("访问间隔过短")) return
+        response.close()
+        throw McmodBlockedException("mcmod rejected requests sent too frequently")
     }
 }
 

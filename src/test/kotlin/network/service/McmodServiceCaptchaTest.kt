@@ -10,12 +10,12 @@
 package top.limbang.mcmod.network.service
 
 import kotlinx.coroutines.runBlocking
+import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
-import okio.Buffer
 import retrofit2.Retrofit
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -46,9 +46,13 @@ class McmodServiceCaptchaTest {
             service.solveCaptcha("https://search.mcmod.cn/s?key=ae2&filter=0&page=1", 2).close()
         }
 
-        val body = Buffer().also { capturedRequest.body!!.writeTo(it) }.readUtf8()
+        val body = capturedRequest.body as FormBody
+        val fields = (0 until body.size).associate { body.name(it) to body.value(it) }
         assertEquals("POST", capturedRequest.method)
         assertEquals("https://search.mcmod.cn/s?key=ae2&filter=0&page=1", capturedRequest.url.toString())
-        assertEquals("cc_captcha_answer=2&cc_captcha_submit=1", body)
+        assertEquals(
+            mapOf("cc_captcha_answer" to "2", "cc_captcha_submit" to "1"),
+            fields
+        )
     }
 }
