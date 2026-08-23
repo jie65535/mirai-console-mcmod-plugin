@@ -110,7 +110,7 @@ object MiraiToMcmodService {
                         val (filtered, hasMore) = runCatching {
                             fetchSearchPage(filter, key, serverPage)
                         }.getOrElse { e ->
-                            return PlainText(formatRequestError(e))
+                            return PlainText(formatRequestError(e)).also { listMessage.recall() }
                         }
 
                         isNextPage = hasMore
