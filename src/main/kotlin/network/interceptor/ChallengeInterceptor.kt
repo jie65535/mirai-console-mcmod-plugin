@@ -11,24 +11,44 @@ package top.limbang.mcmod.network.interceptor
 
 import okhttp3.Interceptor
 import okhttp3.Response
-import top.limbang.mcmod.Mcmod
+import org.jsoup.Jsoup
 import top.limbang.mcmod.network.McmodBlockedException
+import top.limbang.mcmod.network.McmodCaptchaException
+import java.util.Base64
+import java.util.logging.Logger
 
 /**
  * ### mcmod 反爬虫挑战拦截器
  *
- * mcmod 站点对部分接口返回一段约 100~150 字节的 JS:
+ * mcmod 站点可能返回旧版 JS Cookie 挑战:
  * ```
  * <script>document.cookie = 'yxd_token=<token>'
  * window.location.href='<原路径>'</script>
  * ```
- * 浏览器执行后会带上 cookie 重新请求, 真实内容才会返回.
- * 此拦截器识别该响应, 自动写入 cookie 并重放原请求.
+ * 也可能返回新版 Minecraft 物品计数验证码. 旧版挑战会自动重放请求,
+ * 新版挑战则解析出题目和图片后交给消息层让用户作答.
  */
 class ChallengeInterceptor : Interceptor {
     companion object {
-        private const val CHALLENGE_BODY_MAX_BYTES = 1024L
+        private const val LEGACY_CHALLENGE_BODY_MAX_BYTES = 4L * 1024L
+        private const val CAPTCHA_BODY_MAX_BYTES = 1024L * 1024L
+        private const val CAPTCHA_IMAGE_PREFIX = "data:image/png;base64,"
         private val TOKEN_REGEX = Regex("""yxd_token=([a-zA-Z0-9]+)""")
+        private val LOGGER = Logger.getLogger(ChallengeInterceptor::class.java.name)
+
+        internal fun parseCaptchaBody(body: String): CaptchaPayload? {
+            val document = Jsoup.parse(body)
+            if (document.selectFirst("input[name=cc_captcha_answer]") == null) return null
+
+            val imageUrl = document.selectFirst("#captchaImage")?.attr("src").orEmpty()
+            val question = document.selectFirst(".captcha-question")?.text().orEmpty()
+            if (!imageUrl.startsWith(CAPTCHA_IMAGE_PREFIX) || question.isBlank()) return null
+
+            val imageBytes = runCatching {
+                Base64.getDecoder().decode(imageUrl.substring(CAPTCHA_IMAGE_PREFIX.length))
+            }.getOrNull() ?: return null
+            return CaptchaPayload(question, imageBytes)
+        }
     }
 
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -39,13 +59,22 @@ class ChallengeInterceptor : Interceptor {
         val contentType = response.body?.contentType()?.toString().orEmpty()
         if (!contentType.startsWith("text/")) return response
 
-        // peek 限定 1024 字节, 不消费原始响应体
-        val text = response.peekBody(CHALLENGE_BODY_MAX_BYTES).string()
+        // 只有 403 才需要读取完整 base64 验证码; 正常页面只检查旧版短挑战
+        val peekBytes = if (response.code == 403) CAPTCHA_BODY_MAX_BYTES else LEGACY_CHALLENGE_BODY_MAX_BYTES
+        val text = response.peekBody(peekBytes).string()
+        if (response.code == 403) throwCaptchaIfPresent(response, request.url.toString(), text)
+
         val match = TOKEN_REGEX.find(text)
-        if (match == null || !text.contains("window.location.href")) return response
+        if (match == null || !text.contains("window.location.href")) {
+            if (response.code == 403 && Jsoup.parse(text).title().contains("访问间隔过短")) {
+                response.close()
+                throw McmodBlockedException("mcmod rejected requests sent too frequently")
+            }
+            return response
+        }
 
         val token = match.groupValues[1]
-        Mcmod.logger.info("[Challenge] hit on ${request.url}, retrying with cookie")
+        LOGGER.info("[Challenge] hit on ${request.url}, retrying with cookie")
         val existingCookie = request.header("Cookie")
         val newCookie = if (existingCookie.isNullOrBlank()) {
             "yxd_token=$token"
@@ -64,13 +93,30 @@ class ChallengeInterceptor : Interceptor {
         // 如果重放后仍然是挑战, 说明出口 IP 已被 mcmod 拉黑, 任何 cookie 都过不去
         val retryContentType = retryResponse.body?.contentType()?.toString().orEmpty()
         if (retryContentType.startsWith("text/")) {
-            val retryText = retryResponse.peekBody(CHALLENGE_BODY_MAX_BYTES).string()
+            val retryPeekBytes = if (retryResponse.code == 403) {
+                CAPTCHA_BODY_MAX_BYTES
+            } else {
+                LEGACY_CHALLENGE_BODY_MAX_BYTES
+            }
+            val retryText = retryResponse.peekBody(retryPeekBytes).string()
+            if (retryResponse.code == 403) {
+                throwCaptchaIfPresent(retryResponse, request.url.toString(), retryText)
+            }
             if (TOKEN_REGEX.containsMatchIn(retryText) && retryText.contains("window.location.href")) {
                 retryResponse.close()
-                Mcmod.logger.warning("[Challenge] retry still returns challenge for ${request.url}, IP likely blocked")
+                LOGGER.warning("[Challenge] retry still returns challenge for ${request.url}, IP likely blocked")
                 throw McmodBlockedException()
             }
         }
         return retryResponse
     }
+
+    private fun throwCaptchaIfPresent(response: Response, requestUrl: String, body: String) {
+        val captcha = parseCaptchaBody(body) ?: return
+        response.close()
+        LOGGER.info("[Challenge] captcha required on $requestUrl")
+        throw McmodCaptchaException(requestUrl, captcha.question, captcha.imageBytes)
+    }
 }
+
+internal data class CaptchaPayload(val question: String, val imageBytes: ByteArray)

@@ -26,8 +26,9 @@ object Service {
     private val okHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .protocols(listOf(Protocol.HTTP_1_1))
+            .cookieJar(InMemoryCookieJar())
             .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
             .addInterceptor(UserAgentInterceptor())
             .addInterceptor(ChallengeInterceptor())

@@ -11,12 +11,9 @@ package top.limbang.mcmod.network
 
 import java.io.IOException
 
-/**
- * ### 被 mcmod 反爬虫机制拦截
- *
- * 表示请求被站点的反爬虫挑战阻断, 即使提交了挑战 cookie 仍然无法通过.
- * 通常意味着出口 IP 已被 mcmod 深度标记, 这一情况不是 "搜索无结果" 也不是 "网络错误".
- */
-class McmodBlockedException(
-    message: String = "mcmod anti-crawler challenge could not be passed"
-) : IOException(message)
+/** mcmod 要求用户完成图片计数验证. */
+class McmodCaptchaException(
+    val requestUrl: String,
+    val question: String,
+    val imageBytes: ByteArray
+) : IOException("mcmod captcha verification required")
