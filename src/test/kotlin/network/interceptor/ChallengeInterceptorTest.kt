@@ -15,6 +15,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
+import top.limbang.mcmod.network.McmodBlockedException
 import top.limbang.mcmod.network.McmodCaptchaException
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -67,5 +68,41 @@ class ChallengeInterceptorTest {
 
         assertEquals("图中有多少个木炭 (Charcoal)?", exception.question)
         assertContentEquals(byteArrayOf(1, 2, 3), exception.imageBytes)
+    }
+
+    @Test
+    fun turnsRateLimitAfterLegacyChallengeIntoBlockedException() {
+        var requestCount = 0
+        val client = OkHttpClient.Builder()
+            .addInterceptor(ChallengeInterceptor())
+            .addInterceptor { chain ->
+                requestCount++
+                val isChallenge = requestCount == 1
+                val body = if (isChallenge) {
+                    """
+                        <script>
+                          document.cookie = 'yxd_token=abc123'
+                          window.location.href='/s?key=test'
+                        </script>
+                    """.trimIndent()
+                } else {
+                    "<html><title>访问间隔过短</title></html>"
+                }
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(if (isChallenge) 200 else 403)
+                    .message(if (isChallenge) "OK" else "Forbidden")
+                    .body(body.toResponseBody("text/html; charset=UTF-8".toMediaType()))
+                    .build()
+            }
+            .build()
+
+        val exception = assertFailsWith<McmodBlockedException> {
+            client.newCall(Request.Builder().url("https://search.mcmod.cn/s?key=test").build()).execute()
+        }
+
+        assertEquals("mcmod rejected requests sent too frequently", exception.message)
+        assertEquals(2, requestCount)
     }
 }
