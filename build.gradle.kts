@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "top.limbang.mcmod"
-version = "2.1.0"
+version = "2.2.0"
 
 repositories {
     maven("https://maven.aliyun.com/repository/public")

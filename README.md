@@ -6,7 +6,7 @@
 [![](https://img.shields.io/badge/mirai-2.16.0-69c1b9)](https://github.com/mamoe/mirai)
 
 本项目是基于 Mirai Console 编写的插件
-<p>所有数据均来源于<a href = "https://www.mcmod.cn/">MC百科</a></p>
+<p>查询数据来源于<a href = "https://www.mcmod.cn/">MC百科</a>与<a href = "https://www.creativemechanicserver.com/">CMS蓝图站</a></p>
 <p>戳一戳机器人头像可以获取帮助</p>
 </div>
 
@@ -16,6 +16,7 @@
 /mcmod setConfig <kind> [enabled]    # 配置消息回复功能
 /mcmod setGroupConfig <enabled> [groupId]    # 配置具体群消息回复功能
 /mcmod setQueryCommand <type> <command>    # 配置查询指令
+/mcmod setBlueprintQueryCommand <command>    # 配置机械动力蓝图查询指令
 ```
 设置指定群启动消息回复两种方法: 
 - 1.在需要的群发送 `/mcmod setGroupConfig true` 开启
@@ -47,7 +48,10 @@ ITEM = ssi
 COURSE = ssc
 MODULE_PACKAGE = ssp
 SERVER = sss
+BLUEPRINT = lt
 ```
+
+使用 `lt <关键字>` 搜索机械动力蓝图。列表显示封面、标题、作者和简介；回复编号可查看蓝图详情说明、版本、尺寸、应力以及详情下载链接。蓝图命令修改后需重启插件生效。
 
 MC百科要求安全验证时，机器人会发送一张物品计数图片。发起查询的用户需要在 60 秒内回复数字答案；插件重启或通行凭证到期后会再次提示验证。
 

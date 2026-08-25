@@ -340,6 +340,7 @@ object MiraiToMcmodService {
                 if (!fileParent.exists()) fileParent.mkdirs()
 
                 // 下载图片
+                Mcmod.logger.info("[Image] 开始下载图片：$imgUrl")
                 val responseBody = mcmodService.downloadFile(imgUrl)
                 val type = responseBody.contentType()
                 val bytes = responseBody.bytes()

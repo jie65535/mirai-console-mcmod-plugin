@@ -31,18 +31,20 @@ import top.limbang.mcmod.PluginConfig.isGroupMessagesEnabled
 import top.limbang.mcmod.PluginConfig.isNudgeEnabled
 import top.limbang.mcmod.PluginConfig.isStrangerMessagesEnabled
 import top.limbang.mcmod.PluginConfig.isTempMessagesEnabled
+import top.limbang.mcmod.PluginData.blueprintQueryCommand
 import top.limbang.mcmod.PluginData.queryCommand
 import top.limbang.mcmod.network.model.SearchFilter
+import top.limbang.mcmod.service.MiraiToBlueprintService.toBlueprintSearch
 import top.limbang.mcmod.service.MiraiToMcmodService.toMcmodSearch
 
 
 object Mcmod : KotlinPlugin(JvmPluginDescription(
     id = "top.limbang.mcmod",
     name = "Mcmod",
-    version = "2.1.0",
+    version = "2.2.0",
 ) {
     author("limbang")
-    info("""mc百科查询""")
+    info("""MC百科与机械动力蓝图查询""")
 }) {
 
     override fun onEnable() {
@@ -79,6 +81,20 @@ object Mcmod : KotlinPlugin(JvmPluginDescription(
                     }
                 }
             }
+
+            if (blueprintQueryCommand.isNotBlank()) {
+                startsWith("$blueprintQueryCommand ") {
+                    if (isNotReplyMessage(source)) {
+                        subject.sendMessage("未启用该方式查询,联系管理员更改配置")
+                        return@startsWith
+                    }
+                    if (it.isBlank()) {
+                        subject.sendMessage(message.quote() + "搜索关键字不能为空!")
+                        return@startsWith
+                    }
+                    toBlueprintSearch(it.trim())?.let { result -> subject.sendMessage(result) }
+                }
+            }
         }
 
         if (isNudgeEnabled) {
@@ -86,7 +102,7 @@ object Mcmod : KotlinPlugin(JvmPluginDescription(
             globalEventChannel().subscribeAlways<NudgeEvent> {
                 if (target.id == bot.id) {
                     subject.sendMessage(
-                        "Minecraft百科查询插件使用说明:\n" + "查询物品:${queryCommand[SearchFilter.ITEM]} <物品关键词>\n" + "查询模组:${queryCommand[SearchFilter.MODULE]} <模组关键词>\n" + "查询教程:${queryCommand[SearchFilter.COURSE]} <教程关键词>\n" + "查询整合包:${queryCommand[SearchFilter.MODULE_PACKAGE]} <整合包关键词>\n" + "查询服务器:${queryCommand[SearchFilter.SERVER]} <服务器关键词>\n" + "可私聊机器人查询，避免群内刷屏 :)\n" + "资料均来自:mcmod.cn"
+                        "Minecraft 查询插件使用说明:\n" + "查询物品:${queryCommand[SearchFilter.ITEM]} <物品关键词>\n" + "查询模组:${queryCommand[SearchFilter.MODULE]} <模组关键词>\n" + "查询教程:${queryCommand[SearchFilter.COURSE]} <教程关键词>\n" + "查询整合包:${queryCommand[SearchFilter.MODULE_PACKAGE]} <整合包关键词>\n" + "查询服务器:${queryCommand[SearchFilter.SERVER]} <服务器关键词>\n" + "查询机械动力蓝图:$blueprintQueryCommand <蓝图关键词>\n" + "可私聊机器人查询，避免群内刷屏 :)\n" + "资料来源:mcmod.cn、creativemechanicserver.com"
                     )
                 }
             }
@@ -117,6 +133,18 @@ object PluginCompositeCommand : CompositeCommand(Mcmod, "mcmod") {
     suspend fun CommandSender.setQueryCommand(type: SearchFilter, command: String) {
         sendMessage("The original `${type.name.lowercase()}` query command <${queryCommand[type]}> is changed to <$command> , please restart it to take effect.")
         queryCommand[type] = command
+    }
+
+    @SubCommand
+    @Description("配置机械动力蓝图查询指令")
+    suspend fun CommandSender.setBlueprintQueryCommand(command: String) {
+        val normalized = command.trim()
+        if (normalized.isEmpty()) {
+            sendMessage("查询指令不能为空")
+            return
+        }
+        sendMessage("The original blueprint query command <$blueprintQueryCommand> is changed to <$normalized>, please restart it to take effect.")
+        blueprintQueryCommand = normalized
     }
 
     @SubCommand
@@ -190,4 +218,7 @@ object PluginConfig : AutoSavePluginConfig("mcmod") {
 object PluginData : AutoSavePluginData("mcmod") {
     @ValueDescription("自定义查询指令存储")
     val queryCommand: MutableMap<SearchFilter, String> by value()
+
+    @ValueDescription("机械动力蓝图查询指令")
+    var blueprintQueryCommand: String by value("lt")
 }

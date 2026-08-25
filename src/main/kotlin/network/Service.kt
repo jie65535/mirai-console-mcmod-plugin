@@ -15,6 +15,7 @@ import retrofit2.Retrofit
 import top.limbang.mcmod.network.converter.McmodConverterFactory
 import top.limbang.mcmod.network.interceptor.ChallengeInterceptor
 import top.limbang.mcmod.network.interceptor.UserAgentInterceptor
+import top.limbang.mcmod.network.service.BlueprintService
 import top.limbang.mcmod.network.service.McmodService
 import top.limbang.mcmod.network.service.UrlService
 import java.util.concurrent.TimeUnit
@@ -56,5 +57,10 @@ object Service {
             .client(okHttpClient)
             .build()
         retrofit.create(UrlService::class.java)
+    }
+
+    /** CMS 机械动力蓝图站服务. */
+    val getBlueprintService: BlueprintService by lazy {
+        BlueprintService()
     }
 }
